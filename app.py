@@ -27,8 +27,8 @@ st.markdown("""
         font-weight: bold;
     }
     .stButton > button:hover {
-        background-color: #3b6ba0;
-        color: white;
+        background-color: #ffe8db;
+        color: black;
     }
     
     /* Disabled Button Styling */
@@ -82,7 +82,7 @@ class Config:
     
     # Geometry: Market with Center Pillar
     OBSTACLES = np.array([
-        [0.0, 10.0, 30.0, 50.0], [0.0, 10.0, 0.0, 20.0],
+        [0.0, 10.0, 30.0, 40.0], [0.0, 10.0, 10.0, 20.0],
         [90.0, 100.0, 30.0, 50.0], [90.0, 100.0, 0.0, 20.0],
         [20.0, 80.0, 35.0, 45.0],  
         [20.0, 80.0, 20.0, 30.0],  # Center Pillar
@@ -467,11 +467,12 @@ def run_simulation_backend(rho0, rhom, c0, mass, fd_A, fd_B, cost_C, push_K):
 
 # --- PAGE 1: LANDING ---
 if st.session_state.page == 'landing':
-    st.markdown("<h1 style='text-align: center; margin-top: 100px;'>Crowd & Panic Simulator</h1>", unsafe_allow_html=True)
-    st.markdown("<p style='text-align: center;'>A second-order macroscopic model for pedestrian flow analysis.</p>", unsafe_allow_html=True)
+    st.markdown("<h1 style='text-align: left; margin-top: 100px;'>Indoor Crowd Density Simulator</h1>", unsafe_allow_html=True)
+    st.markdown("<p style='text-align: left;'>Hello! Thank you so much for taking interest in testing this Indoor Crowd Density Simulator ^^. This simulator is made with the intention of minimizing the percentage of people fainting in crowded locations during an indoor event (e. g. Art Market, Comic Conventions, etc.) while avoiding unwanted chaos affecting the entire event.</p>", unsafe_allow_html=True)
+    st.markdown("<p style='text-align: left;'>While this simulator sounds useful only for event organizers, it’s actually also useful for you guys who often visit an indoor event that may be crowdy, so you can avoid becoming part of the “i-fainted-because-the-convention-is-too-crowded” group haha ^^.</p>", unsafe_allow_html=True)
     
-    col1, col2, col3 = st.columns([1,1,1])
-    with col2:
+    col1, col2, col3, col4, col5 = st.columns([1,1,1,1,1])
+    with col5:
         if st.button("Next"):
             go_to_guide()
             st.rerun()
@@ -481,13 +482,13 @@ elif st.session_state.page == 'guide':
     st.markdown("<h1>User Guide</h1>", unsafe_allow_html=True)
     st.markdown("""
     ### How it works
-    1. **Configure**: Set physical parameters like crowd mass, density limits, and walking speeds.
-    2. **Simulate**: The system solves partial differential equations to model flow.
+    1. **Configure**: There will be a set of <u>customizable parameters on the left side of the screen</u>. Feel free to customize your own or use the default parameters, which will determine the final result of the crowd density points.
+    2. **Simulate**: After you’re done, you can <u>press the “Start Simulation!” button</u>. Please kindly wait for a while until the result shows on the right side of the screen. <u>Crowd density points will be marked with designated color.</u>
     3. **Analyze**: Watch how crowd pressure builds up during panic events.
     """)
     
-    col1, col2, col3 = st.columns([1,1,1])
-    with col2:
+    col1, col2, col3, col4, col5 = st.columns([1,1,1,1,1])
+    with col5:
         if st.button("Let's Get Started!"):
             go_to_sim()
             st.rerun()
@@ -503,25 +504,25 @@ elif st.session_state.page == 'simulation':
     
     with col_input:
         st.markdown("#### 1) Parameters")
-        st.info("Hover over parameters for details.")
+        st.info("Hover over the question mark for parameter explanations.")
         
         # --- INPUT BLOCKS (Matches Figma) ---
         # We use st.session_state.inputs_disabled to lock them
         disabled = st.session_state.inputs_disabled
         
-        crit_dens = st.number_input("Critical Density (ped/m²)", value=5.0, disabled=disabled)
-        max_dens = st.number_input("Maximum Density (ped/m²)", value=7.0, disabled=disabled)
-        sonic_spd = st.number_input("Sonic Speed (m/s)", value=1.2, disabled=disabled)
-        avg_mass = st.number_input("Average Mass (kg)", value=60.0, disabled=disabled)
+        crit_dens = st.number_input("**Critical Density (ped/m²)**", value=5.0, disabled=disabled, help="The density at which people start to generate pushing pressure.Below ρ₀, pushing pressure is zero; above it, pushing effects begin to appear.")
+        max_dens = st.number_input("**Maximum Density (ped/m²)**", value=7.0, disabled=disabled, help="The highest possible crowd density the model allows.At ρ = ρₘ, people in the room are fully packed and movement is extremely limited.")
+        sonic_spd = st.number_input("**Sonic Speed (m/s)**", value=1.2, disabled=disabled, help="A model parameter controlling the strength of traffic pressure in the Payne–Whitham formulation. Higher c₀ → more stable flow; lower c₀ → stop-and-go instabilities may appear.")
+        avg_mass = st.number_input("**Average Mass (kg)**", value=60.0, disabled=disabled, help="A constant representing the average body mass of a pedestrian, used in the momentum equations.")
         
-        st.markdown("**Fundamental Diagram**")
+        st.markdown("**Fundamental Diagram**", help="A function that describes how equilibrium walking speed decreases with density.")
         c1, c2 = st.columns(2)
-        fd_A = c1.number_input("Coeff A", value=0.5, disabled=disabled, help="Base speed (m/s)")
-        fd_B = c2.number_input("Coeff B", value=-0.075, disabled=disabled, help="Density decay factor")
+        fd_A = c1.number_input("Coeff A", value=0.5, disabled=disabled)
+        fd_B = c2.number_input("Coeff B", value=-0.075, disabled=disabled)
         st.caption(f"Speed = {fd_A} * exp({fd_B} * ρ²)")
         
-        cost_C = st.number_input("Density Cost Function Coeff", value=0.01, disabled=disabled)
-        push_K = st.number_input("Pushing Capacity Coeff", value=100.0, disabled=disabled)
+        cost_C = st.number_input("**Density Cost Function Coeff**", value=0.01, disabled=disabled, help="A function capturing how pedestrians avoid high-density areas in their route choice.")
+        push_K = st.number_input("**Pushing Capacity Coeff**", value=100.0, disabled=disabled, help="A function describing how strongly pedestrians can generate pushing pressure when crowded.")
         
         st.markdown("---")
         
