@@ -71,10 +71,67 @@ def enable_editing():
 # 2. Simulation Logic (BACKEND)
 # ==========================================
 # Note: These variables are global and accessed by the backend
-INFLOW_RATE = st.sidebar.slider("Inflow Density (People/m²)", 1.0, 8.0, 5.5, help="How fast people enter the room.")
-WALK_SPEED = st.sidebar.slider("Walking Speed (m/s)", 0.2, 1.5, 0.5, help="Lower = Sluggish movement.")
-SIM_DURATION = st.sidebar.slider("Simulation Duration (s)", 50, 200, 100)
-PANIC_TIME = st.sidebar.slider("Panic Event Time (s)", 0, 200, 75)
+INFLOW_RATE = 0
+WALK_SPEED = 0
+SIM_DURATION = 0
+PANIC_TIME = 0
+
+# 1. Setup Session State for Navigation
+# We default to 'landing' if the app just started
+if 'page' not in st.session_state:
+    st.session_state.page = 'landing'
+
+# 2. Sidebar Logic (Restricted to Simulation Page)
+if st.session_state.page == 'simulation':
+    st.sidebar.markdown("### Simulation Controls")
+    
+    INFLOW_RATE = st.sidebar.slider(
+        "Inflow Density (People/m²)", 
+        1.0, 8.0, 5.5, 
+        help="How fast people enter the room."
+    )
+    
+    WALK_SPEED = st.sidebar.slider(
+        "Walking Speed (m/s)", 
+        0.2, 1.5, 0.5, 
+        help="Lower = Sluggish movement."
+    )
+    
+    SIM_DURATION = st.sidebar.slider(
+        "Simulation Duration (s)", 
+        50, 200, 100
+    )
+    
+    PANIC_TIME = st.sidebar.slider(
+        "Panic Event Time (s)", 
+        0, 200, 75
+    )
+else:
+    # This ensures the sidebar remains empty on 'landing' and 'guide' pages
+    st.sidebar.empty()
+
+# --- FOR TESTING: Simple Page Navigation Buttons ---
+# (You can remove this part once your main navigation is working)
+if st.session_state.page == 'landing':
+    st.title("Landing Page")
+    if st.button("Next"):
+        st.session_state.page = 'guide'
+        st.rerun()
+
+elif st.session_state.page == 'guide':
+    st.title("Guide Page")
+    if st.button("Let's Get Started!"):
+        st.session_state.page = 'simulation'
+        st.rerun()
+
+elif st.session_state.page == 'simulation':
+    st.title("Simulation Content")
+    st.write("Notice the sidebar is now visible!")
+    # Your input blocks and simulation code go here...
+    
+    if st.button("Back to Home"):
+        st.session_state.page = 'landing'
+        st.rerun()
 
 class Config:
     L_X = 100.0
