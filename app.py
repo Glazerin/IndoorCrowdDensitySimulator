@@ -5,6 +5,7 @@ from matplotlib.animation import FuncAnimation
 import matplotlib.colors as mcolors
 from numba import jit
 import time
+import matplotlib.patches as patches # Added for cleaner patch handling
 
 # ==========================================
 # 0. Page Config & CSS Styling
@@ -67,47 +68,13 @@ def enable_editing():
     st.session_state.simulation_data = None
 
 # ==========================================
-# 2. Simulation Logic (BACKEND - FIXED)
+# 2. Simulation Logic (BACKEND)
 # ==========================================
 # Note: These variables are global and accessed by the backend
-INFLOW_RATE = 0
-WALK_SPEED = 0
-SIM_DURATION = 0
-PANIC_TIME = 0
-
-# 1. Setup Session State for Navigation
-# We default to 'landing' if the app just started
-if 'page' not in st.session_state:
-    st.session_state.page = 'landing'
-
-# 2. Sidebar Logic (Restricted to Simulation Page)
-if st.session_state.page == 'simulation':
-    st.sidebar.markdown("### Simulation Controls")
-    
-    INFLOW_RATE = st.sidebar.slider(
-        "Inflow Density (People/m²)", 
-        1.0, 8.0, 5.5, 
-        help="How fast people enter the room."
-    )
-    
-    WALK_SPEED = st.sidebar.slider(
-        "Walking Speed (m/s)", 
-        0.2, 1.5, 0.5, 
-        help="Lower = Sluggish movement."
-    )
-    
-    SIM_DURATION = st.sidebar.slider(
-        "Simulation Duration (s)", 
-        50, 200, 100
-    )
-    
-    PANIC_TIME = st.sidebar.slider(
-        "Panic Event Time (s)", 
-        0, 200, 75
-    )
-else:
-    # This ensures the sidebar remains empty on 'landing' and 'guide' pages
-    st.sidebar.empty()
+INFLOW_RATE = st.sidebar.slider("Inflow Density (People/m²)", 1.0, 8.0, 5.5, help="How fast people enter the room.")
+WALK_SPEED = st.sidebar.slider("Walking Speed (m/s)", 0.2, 1.5, 0.5, help="Lower = Sluggish movement.")
+SIM_DURATION = st.sidebar.slider("Simulation Duration (s)", 50, 200, 100)
+PANIC_TIME = st.sidebar.slider("Panic Event Time (s)", 0, 200, 75)
 
 class Config:
     L_X = 100.0
@@ -117,11 +84,11 @@ class Config:
     T_MAX = float(SIM_DURATION)
     CFL = 0.4    
     
-    # Model Params
+    # Model Params (These are defaults, UI overrides them)
     RHO_0 = 5.0
     RHO_M = 7.0
     C0 = 1.2
-    TAU = 2.0   # Sluggish acceleration
+    TAU = 2.0   
     MASS = 60.0
     PANIC_START_TIME = float(PANIC_TIME)
     
@@ -359,8 +326,9 @@ def compute_panic_source(rho, X, Y, t, panic_start, rho0, pushing_cap_coeff):
             source[j, i] = term_dist * k_val
     return source
 
-# --- MAIN DRIVER (FIXED BACKEND) ---
-def run_simulation_backend(rho0, rhom, c0, mass, fd_A, fd_B, cost_C, push_K):
+# --- MAIN DRIVER (FIXED) ---
+# FIXED: Added 'tau' to the arguments to match the UI call
+def run_simulation_backend(rho0, rhom, c0, tau, mass, fd_A, fd_B, cost_C, push_K):
     nx = int(Config.L_X / Config.DX)
     ny = int(Config.L_Y / Config.DY)
     x = np.linspace(0, Config.L_X, nx)
@@ -427,12 +395,13 @@ def run_simulation_backend(rho0, rhom, c0, mass, fd_A, fd_B, cost_C, push_K):
         dt = Config.CFL * Config.DX / (max_v + 1e-6)
         if dt > 0.1: dt = 0.1
         
-        # RK3 Steps (Using passed params A, B, mass, c0)
-        L1 = compute_rhs_jit(Q, P2, phi_e, mask_obs, Config.DX, Config.DY, c0, Config.TAU, mass, fd_A, fd_B)
+        # RK3 Steps 
+        # FIXED: Passing 'tau' from arguments instead of 'Config.TAU'
+        L1 = compute_rhs_jit(Q, P2, phi_e, mask_obs, Config.DX, Config.DY, c0, tau, mass, fd_A, fd_B)
         Q1 = Q + dt * L1
-        L2 = compute_rhs_jit(Q1, P2, phi_e, mask_obs, Config.DX, Config.DY, c0, Config.TAU, mass, fd_A, fd_B)
+        L2 = compute_rhs_jit(Q1, P2, phi_e, mask_obs, Config.DX, Config.DY, c0, tau, mass, fd_A, fd_B)
         Q2 = 0.75 * Q + 0.25 * (Q1 + dt * L2)
-        L3 = compute_rhs_jit(Q2, P2, phi_e, mask_obs, Config.DX, Config.DY, c0, Config.TAU, mass, fd_A, fd_B)
+        L3 = compute_rhs_jit(Q2, P2, phi_e, mask_obs, Config.DX, Config.DY, c0, tau, mass, fd_A, fd_B)
         Q_new = (1.0/3.0) * Q + (2.0/3.0) * (Q2 + dt * L3)
         
         # Apply BCs
@@ -506,7 +475,10 @@ elif st.session_state.page == 'simulation':
         crit_dens = st.number_input("**Critical Density (ped/m²)**", value=5.0, disabled=disabled, help="The density at which people start to generate pushing pressure.Below ρ₀, pushing pressure is zero; above it, pushing effects begin to appear.")
         max_dens = st.number_input("**Maximum Density (ped/m²)**", value=7.0, disabled=disabled, help="The highest possible crowd density the model allows.At ρ = ρₘ, people in the room are fully packed and movement is extremely limited.")
         sonic_spd = st.number_input("**Sonic Speed (m/s)**", value=1.2, disabled=disabled, help="A model parameter controlling the strength of traffic pressure in the Payne–Whitham formulation. Higher c₀ → more stable flow; lower c₀ → stop-and-go instabilities may appear.")
-        sonic_spd = st.number_input("**Relaxation Time (s)**", value=1.2, disabled=disabled, help="A characteristic time scale that describes how quickly pedestrians adjust their actual velocity to the equilibrium (desired) velocity.")        
+        
+        # The Variable in Question
+        relax_time = st.number_input("**Relaxation Time (s)**", value=2.0, disabled=disabled, help="A characteristic time scale that describes how quickly pedestrians adjust their actual velocity to the equilibrium (desired) velocity.")        
+        
         avg_mass = st.number_input("**Average Mass (kg)**", value=60.0, disabled=disabled, help="A constant representing the average body mass of a pedestrian, used in the momentum equations.")
         
         st.markdown("**Fundamental Diagram**", help="A function that describes how equilibrium walking speed decreases with density.")
@@ -532,7 +504,8 @@ elif st.session_state.page == 'simulation':
                 # This block runs right after user clicks start (and rerun happens)
                 with st.spinner("Simulating physics (this may take ~1 minute)..."):
                     # RUN BACKEND HERE
-                    X, Y, hist = run_simulation_backend(crit_dens, max_dens, sonic_spd, avg_mass, fd_A, fd_B, cost_C, push_K)
+                    # Fixed: Pass all 9 arguments including relax_time
+                    X, Y, hist = run_simulation_backend(crit_dens, max_dens, sonic_spd, relax_time, avg_mass, fd_A, fd_B, cost_C, push_K)
                     st.session_state.simulation_data = (X, Y, hist)
                 st.rerun() # Rerun to show results
             else:
@@ -584,9 +557,9 @@ elif st.session_state.page == 'simulation':
                 ax.set_title(f"Time: {t:.1f} s")
                 for obs in Config.OBSTACLES:
                     ax.add_patch(plt.Rectangle((obs[0], obs[2]), obs[1]-obs[0], obs[3]-obs[2], fc='black'))
-                if t >= Config.PANIC_START_TIME:
-                    o = Config.NEW_OBSTACLE
-                    ax.add_patch(plt.Rectangle((o[0], o[2]), o[1]-o[0], o[3]-o[2], fc='red'))
+                #if t >= Config.PANIC_START_TIME:
+                    #o = Config.NEW_OBSTACLE
+                    #ax.add_patch(plt.Rectangle((o[0], o[2]), o[1]-o[0], o[3]-o[2], fc='red'))
 
             anim = FuncAnimation(fig, update, frames=len(history), interval=100)
             
