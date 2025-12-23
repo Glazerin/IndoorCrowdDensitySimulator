@@ -605,7 +605,7 @@ elif st.session_state.page == 'simulation':
             # Display using Streamlit - Wrap the component in a white div to prevent dark-mode bleed
             anim_html = anim.to_jshtml()
             white_background_wrapper = f"""
-            <div style="background-color: white; padding: 10px; border-radius: 10px;">
+            <div style="background-color: white; border-radius: 10px;">
                 {anim_html}
             </div>
             """
