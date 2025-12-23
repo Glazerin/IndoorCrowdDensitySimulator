@@ -478,8 +478,8 @@ elif st.session_state.page == 'guide':
     st.markdown("<h1>User Guide</h1>", unsafe_allow_html=True)
     st.markdown("""
     ### How it works
-    1. **Configure**: There will be a set of <u>customizable parameters on the left side of the screen</u>. Feel free to customize your own or use the default parameters, which will determine the final result of the crowd density points.
-    2. **Simulate**: After you’re done, you can <u>press the “Start Simulation!” button</u>. Please kindly wait for a while until the result shows on the right side of the screen. <u>Crowd density points will be marked with designated color.</u>
+    1. **Configure**: There will be a set of <span style="text-decoration: underline;">customizable parameters on the left side of the screen</span>. Feel free to customize your own or use the default parameters, which will determine the final result of the crowd density points.
+    2. **Simulate**: After you’re done, you can <span style="text-decoration: underline;">press the “Start Simulation!” button</span>. Please kindly wait for a while until the result shows on the right side of the screen. <span style="text-decoration: underline;">Crowd density points will be marked with designated color.</span>
     3. **Analyze**: Watch how crowd pressure builds up during panic events.
     """)
     
@@ -555,10 +555,10 @@ elif st.session_state.page == 'simulation':
         result_container = st.container()
         
         if st.session_state.simulation_data is None:
-            # Placeholder State
+            # Placeholder State - Added white background and darkened text/border for visibility
             result_container.markdown(
                 """
-                <div style='height: 400px; border: 2px dashed #444; display: flex; align-items: center; justify-content: center; color: #888;'>
+                <div style='height: 400px; border: 2px dashed #444; display: flex; align-items: center; justify-content: center; color: #888; background-color: white; border-radius: 10px;'>
                     Awaiting parameter submission...
                 </div>
                 """, 
@@ -568,8 +568,9 @@ elif st.session_state.page == 'simulation':
             # Result State
             X, Y, history = st.session_state.simulation_data
             
-            # Create Plot
-            fig, ax = plt.subplots(figsize=(8, 5))
+            # Create Plot - Force white background for the figure
+            fig, ax = plt.subplots(figsize=(8, 5), facecolor='white')
+            ax.set_facecolor('white')
             
             # Draw Static Obstacles
             for obs in Config.OBSTACLES:
@@ -581,22 +582,32 @@ elif st.session_state.page == 'simulation':
             
             # Initial Contours
             mesh = ax.contourf(X, Y, history[0][1], levels=np.linspace(0, 10, 100), cmap='jet', extend='both')
-            fig.colorbar(mesh, ax=ax, label='Density')
-            title = ax.set_title("Time: 0.0s")
+            cbar = fig.colorbar(mesh, ax=ax, label='Density')
+            
+            # Ensure text is black for readability on white
+            ax.set_title("Time: 0.0s", color='black')
+            ax.tick_params(colors='black')
+            cbar.ax.yaxis.label.set_color('black')
+            cbar.ax.tick_params(colors='black')
 
             def update(frame_idx):
                 t, rho = history[frame_idx]
                 ax.clear()
+                ax.set_facecolor('white')
                 ax.contourf(X, Y, rho, levels=np.linspace(0, 10, 100), cmap='jet', extend='both')
-                ax.set_title(f"Time: {t:.1f} s")
+                ax.set_title(f"Time: {t:.1f} s", color='black')
+                ax.tick_params(colors='black')
                 for obs in Config.OBSTACLES:
                     ax.add_patch(plt.Rectangle((obs[0], obs[2]), obs[1]-obs[0], obs[3]-obs[2], fc='black'))
-                #if t >= Config.PANIC_START_TIME:
-                    #o = Config.NEW_OBSTACLE
-                    #ax.add_patch(plt.Rectangle((o[0], o[2]), o[1]-o[0], o[3]-o[2], fc='red'))
 
             anim = FuncAnimation(fig, update, frames=len(history), interval=100)
             
-            # Display using Streamlit
-            st.components.v1.html(anim.to_jshtml(), height=600, scrolling=True)
+            # Display using Streamlit - Wrap the component in a white div to prevent dark-mode bleed
+            anim_html = anim.to_jshtml()
+            white_background_wrapper = f"""
+            <div style="background-color: white; padding: 10px; border-radius: 10px;">
+                {anim_html}
+            </div>
+            """
+            st.components.v1.html(white_background_wrapper, height=600, scrolling=True)
             result_container.success("Simulation Complete.")
