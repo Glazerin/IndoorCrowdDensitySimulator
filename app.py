@@ -481,7 +481,7 @@ elif st.session_state.page == 'guide':
     1. **Configure**: There will be a set of <span style="text-decoration: underline;">customizable parameters on the left side of the screen</span>. Feel free to customize your own or use the default parameters, which will determine the final result of the crowd density points.
     2. **Simulate**: After you’re done, you can <span style="text-decoration: underline;">press the “Start Simulation!” button</span>. Please kindly wait for a while until the result shows on the right side of the screen. <span style="text-decoration: underline;">Crowd density points will be marked with designated color.</span>
     3. **Analyze**: Watch how crowd pressure builds up during panic events.
-    """)
+    """, unsafe_allow_html=True)
     
     col1, col2, col3, col4, col5 = st.columns([1,1,1,1,1])
     with col5:
