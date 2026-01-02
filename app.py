@@ -611,3 +611,7 @@ elif st.session_state.page == 'simulation':
             """
             st.components.v1.html(white_background_wrapper, height=600, scrolling=True)
             result_container.success("Simulation Complete.")
+            st.markdown(
+                "<p style='text-align: left;'> Simulation results can be determined based on the density color range on the right side. For example, if your simulation results displayed <span style='font-weight: bold; color: red;'>RED</span> areas, your parameters might not be compatible using this kind of indoor map. But, if there were no <span style='font-weight: bold; color: red;'>RED</span> areas, your parameters were good to go!</p>", 
+                unsafe_allow_html=True
+            )
