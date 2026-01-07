@@ -129,6 +129,14 @@ class Config:
     MASS = 60.0
     PANIC_START_TIME = float(PANIC_TIME) if PANIC_TIME > 0 else 150.0
     
+
+    # Old Market Obstacles
+    # OBSTACLES = np.array([
+    #     [0.0, 10.0, 30.0, 50.0], [0.0, 10.0, 0.0, 20.0],
+    #     [90.0, 100.0, 30.0, 50.0], [90.0, 100.0, 0.0, 20.0],
+    #     [20.0, 80.0, 35.0, 45.0], [20.0, 80.0, 20.0, 30.0], [20.0, 80.0, 5.0, 15.0], 
+    # ], dtype=np.float64)
+
     # Geometry: Railway Platform Barriers 
     # Three blocks at x=[60,65]
     OBSTACLES = np.array([
