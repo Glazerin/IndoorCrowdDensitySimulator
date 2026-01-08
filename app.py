@@ -98,7 +98,7 @@ if st.session_state.page == 'simulation':
         50, 250, 250
     )
     
-    # --- UPDATE: Default Panic Time jadi 4 detik ---
+    # Default Panic Time = 4 detik (agar cepat muncul)
     PANIC_TIME = st.sidebar.slider(
         "Panic Event Time (s)", 
         0, 200, 4 
@@ -114,7 +114,7 @@ class Config:
     T_MAX = float(SIM_DURATION)
     CFL = 0.4    
     
-    # Model Params (These are defaults, UI overrides them)
+    # Model Params 
     RHO_0 = 5.0
     RHO_M = 7.0
     C0 = 1.2
@@ -450,17 +450,11 @@ def run_simulation_backend(rho0, rhom, c0, tau, mass, fd_A, fd_B, cost_C, push_K
     status.empty()
     return X, Y, history
 
-# --- ANALYSIS HELPER (NEWLY ADDED) ---
+# --- ANALYSIS HELPER ---
 def plot_density_vs_time(history, nx, ny):
-    # 1. Tentukan Koordinat Grid untuk Titik A dan B
-    # Asumsi grid 200x100 (sesuai kode Anda ny=100, nx=200)
-    # Titik A (Depan rintangan, misal x=115, y=50) -> Area macet
-    # Titik B (Belakang rintangan, misal x=130, y=50) -> Area kosong
-    
-    # Sesuaikan indeks ini dengan posisi rintangan di map Anda!
-    # Misal obstacle ada di x=60 (meter). Jika dx=0.5, maka grid index = 120.
-    pt_A_x, pt_A_y = 118, 50  # Sedikit sebelum rintangan (Upstream)
-    pt_B_x, pt_B_y = 130, 50  # Sedikit sesudah rintangan (Downstream)
+    # Titik A (Upstream/Macet) & B (Downstream/Kosong)
+    pt_A_x, pt_A_y = 118, 50 
+    pt_B_x, pt_B_y = 130, 50 
 
     times = []
     densities_A = []
@@ -468,21 +462,18 @@ def plot_density_vs_time(history, nx, ny):
 
     for time_val, rho_grid in history:
         times.append(time_val)
-        # Pastikan indeks tidak out of bound
         val_a = rho_grid[min(pt_A_y, ny-1), min(pt_A_x, nx-1)]
         val_b = rho_grid[min(pt_B_y, ny-1), min(pt_B_x, nx-1)]
         densities_A.append(val_a)
         densities_B.append(val_b)
 
-    # 2. Plotting (Modified for Streamlit)
-    # Menggunakan background putih agar sesuai dengan container video
     fig, ax = plt.subplots(figsize=(10, 4), facecolor='white')
     ax.set_facecolor('white')
     
-    ax.plot(times, densities_A, label='Titik A (Upstream/Macet)', color='#d62728', linewidth=2)
-    ax.plot(times, densities_B, label='Titik B (Downstream/Kosong)', color='#1f77b4', linestyle='--', linewidth=2)
+    ax.plot(times, densities_A, label='Titik A (Upstream)', color='#d62728', linewidth=2)
+    ax.plot(times, densities_B, label='Titik B (Downstream)', color='#1f77b4', linestyle='--', linewidth=2)
     
-    ax.set_title("Evolusi Densitas Terhadap Waktu (Analisis Rintangan)", color='black')
+    ax.set_title("Evolusi Densitas Terhadap Waktu", color='black')
     ax.set_xlabel("Waktu (s)", color='black')
     ax.set_ylabel("Densitas (orang/m²)", color='black')
     
@@ -493,7 +484,6 @@ def plot_density_vs_time(history, nx, ny):
     ax.legend()
     ax.grid(True, alpha=0.3, color='gray')
     
-    # Render di Streamlit
     st.markdown("### Analisis Grafik")
     st.pyplot(fig)
 
@@ -543,48 +533,38 @@ elif st.session_state.page == 'simulation':
         st.markdown("#### 1) Parameters")
         st.info("Hover over the question mark for parameter explanations.")
         
-        # --- INPUT BLOCKS (Matches Figma) ---
-        # We use st.session_state.inputs_disabled to lock them
         disabled = st.session_state.inputs_disabled
         
-        crit_dens = st.number_input("**Critical Density (ped/m²)**", value=5.0, disabled=disabled, help="The density at which people start to generate pushing pressure.Below ρ₀, pushing pressure is zero; above it, pushing effects begin to appear.")
-        max_dens = st.number_input("**Maximum Density (ped/m²)**", value=7.0, disabled=disabled, help="The highest possible crowd density the model allows.At ρ = ρₘ, people in the room are fully packed and movement is extremely limited.")
-        sonic_spd = st.number_input("**Sonic Speed (m/s)**", value=1.2, disabled=disabled, help="A model parameter controlling the strength of traffic pressure in the Payne–Whitham formulation. Higher c₀ → more stable flow; lower c₀ → stop-and-go instabilities may appear.")
+        crit_dens = st.number_input("**Critical Density (ped/m²)**", value=5.0, disabled=disabled, help="The density at which people start to generate pushing pressure.")
+        max_dens = st.number_input("**Maximum Density (ped/m²)**", value=7.0, disabled=disabled, help="The highest possible crowd density the model allows.")
+        sonic_spd = st.number_input("**Sonic Speed (m/s)**", value=1.2, disabled=disabled, help="A model parameter controlling the strength of traffic pressure.")
         
-        # The Variable in Question
-        relax_time = st.number_input("**Relaxation Time (s)**", value=0.61, disabled=disabled, help="A characteristic time scale that describes how quickly pedestrians adjust their actual velocity to the equilibrium (desired) velocity.")        
+        relax_time = st.number_input("**Relaxation Time (s)**", value=0.61, disabled=disabled, help="A characteristic time scale that describes how quickly pedestrians adjust their actual velocity.")        
         
-        avg_mass = st.number_input("**Average Mass (kg)**", value=60.0, disabled=disabled, help="A constant representing the average body mass of a pedestrian, used in the momentum equations.")
+        avg_mass = st.number_input("**Average Mass (kg)**", value=60.0, disabled=disabled, help="A constant representing the average body mass of a pedestrian.")
         
-        st.markdown("**Fundamental Diagram**", help="A function that describes how equilibrium walking speed decreases with density.")
+        st.markdown("**Fundamental Diagram**")
         c1, c2 = st.columns(2)
         fd_A = c1.number_input("Coeff A", value=1.03, disabled=disabled)
         fd_B = c2.number_input("Coeff B", value=-0.07, disabled=disabled)
         st.caption(f"Speed = {fd_A} * exp({fd_B} * ρ²)")
         
-        cost_C = st.number_input("**Density Cost Function Coeff**", value=0.01, disabled=disabled, help="A function capturing how pedestrians avoid high-density areas in their route choice.")
-        push_K = st.number_input("**Pushing Capacity Coeff**", value=600.0, disabled=disabled, help="A function describing how strongly pedestrians can generate pushing pressure when crowded.")
+        cost_C = st.number_input("**Density Cost Function Coeff**", value=0.01, disabled=disabled, help="A function capturing how pedestrians avoid high-density areas.")
+        push_K = st.number_input("**Pushing Capacity Coeff**", value=600.0, disabled=disabled, help="A function describing how strongly pedestrians can generate pushing pressure.")
         
         st.markdown("---")
         
-        # --- ACTION BUTTONS ---
         if not st.session_state.inputs_disabled:
-            # STATE 3: Ready to start
             if st.button("Start Simulation!"):
                 st.session_state.inputs_disabled = True
-                st.rerun() # Rerun to update UI to "Disabled" state immediately
+                st.rerun()
         else:
-            # STATE 4: Simulation Done/Running
             if st.session_state.simulation_data is None:
-                # This block runs right after user clicks start (and rerun happens)
                 with st.spinner("Simulating physics (this may take ~1 minute)..."):
-                    # RUN BACKEND HERE
-                    # Fixed: Pass all 9 arguments including relax_time
                     X, Y, hist = run_simulation_backend(crit_dens, max_dens, sonic_spd, relax_time, avg_mass, fd_A, fd_B, cost_C, push_K)
                     st.session_state.simulation_data = (X, Y, hist)
-                st.rerun() # Rerun to show results
+                st.rerun()
             else:
-                # Simulation is finished, data is present. Show "Edit" button.
                 if st.button("Edit New Parameters"):
                     enable_editing()
                     st.rerun()
@@ -592,11 +572,9 @@ elif st.session_state.page == 'simulation':
     with col_result:
         st.markdown("#### 2) Simulation Results")
         
-        # Container for the result
         result_container = st.container()
         
         if st.session_state.simulation_data is None:
-            # Placeholder State - Added white background and darkened text/border for visibility
             result_container.markdown(
                 """
                 <div style='height: 400px; border: 2px dashed #444; display: flex; align-items: center; justify-content: center; color: #888; background-color: white; border-radius: 10px;'>
@@ -606,17 +584,18 @@ elif st.session_state.page == 'simulation':
                 unsafe_allow_html=True
             )
         else:
-            # Result State
             X, Y, history = st.session_state.simulation_data
             
-            # Create Plot - Force white background for the figure
+            # Create Plot
             fig, ax = plt.subplots(figsize=(8, 5), facecolor='white')
             ax.set_facecolor('white')
             
-            # Draw Static Obstacles
-            for obs in Config.OBSTACLES:
-                ax.add_patch(plt.Rectangle((obs[0], obs[2]), obs[1]-obs[0], obs[3]-obs[2], fc='black'))
-            
+            # --- INITIAL CONTOUR & COLORBAR (DIKEMBALIKAN) ---
+            mesh = ax.contourf(X, Y, history[0][1], levels=np.linspace(0, 10, 100), cmap='jet', extend='both')
+            cbar = fig.colorbar(mesh, ax=ax, label='Density')
+            cbar.ax.yaxis.label.set_color('black')
+            cbar.ax.tick_params(colors='black')
+
             # --- UPDATE: FUNGSI UPDATE ANIMASI AGAR MUNCUL MERAH ---
             def update(frame_idx):
                 t, rho = history[frame_idx]
@@ -640,7 +619,7 @@ elif st.session_state.page == 'simulation':
 
             anim = FuncAnimation(fig, update, frames=len(history), interval=100)
             
-            # Display using Streamlit - Wrap the component in a white div to prevent dark-mode bleed
+            # Display using Streamlit
             anim_html = anim.to_jshtml()
             white_background_wrapper = f"""
             <div style="background-color: white; border-radius: 10px;">
@@ -654,6 +633,4 @@ elif st.session_state.page == 'simulation':
                 unsafe_allow_html=True
             )
             
-            # --- INTEGRASI KODE BARU DI SINI ---
-            # Menampilkan grafik tambahan di bawah teks interpretasi
             plot_density_vs_time(history, int(Config.L_X / Config.DX), int(Config.L_Y / Config.DY))
