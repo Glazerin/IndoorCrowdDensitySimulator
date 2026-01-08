@@ -146,7 +146,7 @@ class Config:
     ], dtype=np.float64)
     
     # Panic Obstacle: Collapse at (60, 30) 
-    NEW_OBSTACLE = np.array([60.0, 65.0, 30.0, 33.0], dtype=np.float64)
+    # NEW_OBSTACLE = np.array([60.0, 65.0, 30.0, 33.0], dtype=np.float64)
 
 # --- JIT HELPERS ---
 @jit(nopython=True)
@@ -423,9 +423,9 @@ def run_simulation_backend(rho0, rhom, c0, tau, mass, fd_A, fd_B, cost_C, push_K
     
     while t < Config.T_MAX:
         # Panic Obstacle (Barrier Collapse) 
-        if t >= panic_start:
-            o = Config.NEW_OBSTACLE
-            mask_obs[(Y >= o[2]) & (Y <= o[3]) & (X >= o[0]) & (X <= o[1])] = True
+        # if t >= panic_start:
+        #     o = Config.NEW_OBSTACLE
+        #     mask_obs[(Y >= o[2]) & (Y <= o[3]) & (X >= o[0]) & (X <= o[1])] = True
 
         # Inflow (Paper Equation 49) [cite: 486]
         rho_val = get_paper_inflow(t, peak_inflow)
