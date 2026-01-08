@@ -101,7 +101,7 @@ if st.session_state.page == 'simulation':
     # Default Panic Time = 4 detik (agar cepat muncul)
     PANIC_TIME = st.sidebar.slider(
         "Panic Event Time (s)", 
-        0, 200, 4 
+        0, 200, 5 
     )
 else:
     st.sidebar.empty()
