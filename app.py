@@ -87,7 +87,7 @@ if st.session_state.page == 'simulation':
     
     INFLOW_RATE = st.sidebar.slider(
         "Inflow Density (People/m²)", 
-        1.0, 8.0, 5.5, 
+        1.0, 8.0, 1.5, 
         help="How fast people enter the room."
     )
     
