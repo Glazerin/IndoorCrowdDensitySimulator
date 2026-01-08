@@ -68,73 +68,90 @@ def enable_editing():
     st.session_state.simulation_data = None
 
 # ==========================================
-# 2. Simulation Logic (BACKEND)
+# 2. Simulation Logic (BACKEND - UPDATED FOR PAPER)
 # ==========================================
+# Note: These variables are global and accessed by the backend
 INFLOW_RATE = 0
 WALK_SPEED = 0
 SIM_DURATION = 0
 PANIC_TIME = 0
 
+# 1. Setup Session State for Navigation
 if 'page' not in st.session_state:
     st.session_state.page = 'landing'
 
+# 2. Sidebar Logic (Restricted to Simulation Page)
 if st.session_state.page == 'simulation':
     st.sidebar.markdown("### Simulation Controls")
     
+    # Updated Default: 1.8 to match Paper's peak inflow 
     INFLOW_RATE = st.sidebar.slider(
         "Inflow Density (People/m²)", 
-        1.0, 8.0, 1.8, 
-        help="How fast people enter the room."
+        0.5, 5.0, 1.8, 
+        help="Peak inflow rate (Paper uses 1.8)."
     )
     
+    # Updated Default: 1.34 m/s (approx max speed in paper) 
     WALK_SPEED = st.sidebar.slider(
         "Walking Speed (m/s)", 
-        0.2, 1.5, 1.34, 
-        help="Lower = Sluggish movement."
+        0.2, 2.0, 1.34, 
+        help="Max walking speed."
     )
     
+    # Updated Default: 250s to see full effect [cite: 493]
     SIM_DURATION = st.sidebar.slider(
         "Simulation Duration (s)", 
-        50, 250, 250
+        50, 400, 250
     )
     
+    # Updated Default: 150s (Paper collapse time) 
     PANIC_TIME = st.sidebar.slider(
         "Panic Event Time (s)", 
-        0, 200, 150
+        0, 300, 150
     )
 else:
     st.sidebar.empty()
 
 class Config:
+    # Geometry: 100m x 50m Railway Platform [cite: 479]
     L_X = 100.0
     L_Y = 50.0
     DX = 0.5
     DY = 0.5
-    T_MAX = float(SIM_DURATION)
+    T_MAX = float(SIM_DURATION) if SIM_DURATION > 0 else 250.0
     CFL = 0.4    
     
-    # Model Params (These are defaults, UI overrides them)
+    # Paper Defaults 
     RHO_0 = 5.0
     RHO_M = 7.0
     C0 = 1.2
     TAU = 0.61   
     MASS = 60.0
-    PANIC_START_TIME = float(PANIC_TIME)
+    PANIC_START_TIME = float(PANIC_TIME) if PANIC_TIME > 0 else 150.0
     
+
+    # Old Market Obstacles
+    # OBSTACLES = np.array([
+    #     [0.0, 10.0, 30.0, 50.0], [0.0, 10.0, 0.0, 20.0],
+    #     [90.0, 100.0, 30.0, 50.0], [90.0, 100.0, 0.0, 20.0],
+    #     [20.0, 80.0, 35.0, 45.0], [20.0, 80.0, 20.0, 30.0], [20.0, 80.0, 5.0, 15.0], 
+    # ], dtype=np.float64)
+
+    # Geometry: Railway Platform Barriers 
+    # Three blocks at x=[60,65]
     OBSTACLES = np.array([
         [60.0, 65.0, 0.0, 10.0],   # Bottom
         [60.0, 65.0, 20.0, 30.0],  # Middle
         [60.0, 65.0, 40.0, 50.0]   # Top
-        # [0.0, 5.0, 30.0, 40.0], [0.0, 5.0, 10.0, 20.0],
-        # [95.0, 100.0, 30.0, 40.0], [95.0, 100.0, 10.0, 20.0],
-        # [20.0, 80.0, 0.0, 5.0], [20.0, 80.0, 12.0, 22.0], [20.0, 80.0, 28.0, 38.0], [20.0, 80.0, 45.0, 50.0]
     ], dtype=np.float64)
     
-    NEW_OBSTACLE = np.array([60, 65, 30, 33], dtype=np.float64)
+    # Panic Obstacle: Collapse at (60, 30) 
+    NEW_OBSTACLE = np.array([60.0, 65.0, 30.0, 33.0], dtype=np.float64)
 
 # --- JIT HELPERS ---
 @jit(nopython=True)
 def get_f_rho(rho, coeff_A, coeff_B):
+    # Fundamental Diagram: 1.034 * exp(-0.075 * rho^2) 
     return coeff_A * np.exp(coeff_B * rho**2)
 
 @jit(nopython=True)
@@ -146,6 +163,21 @@ def clamp_idx(val, max_val):
     if val < 0: return 0
     if val > max_val: return max_val
     return val
+
+# --- INFLOW FUNCTION (Paper Eq 49 Corrected) ---
+@jit(nopython=True)
+def get_paper_inflow(t, peak_val):
+    # Interpreted Trapezoidal Profile based on 
+    # Corrected to reach full peak_val (1.8) instead of 2/3rds
+    if t < 0: return 0.0
+    elif t <= 60.0:
+        return peak_val * (t / 60.0) # Linear Ramp to Peak
+    elif t <= 120.0:
+        return peak_val # Hold Peak
+    elif t <= 180.0:
+        return peak_val * (3.0 - t / 60.0) # Linear Ramp Down
+    else:
+        return 0.0
 
 # --- EIKONAL SOLVER ---
 @jit(nopython=True)
@@ -345,6 +377,7 @@ def compute_rhs_jit(Q, P2, phi_e, mask_obs, dx, dy, C0, Tau, Mass, A, B):
 
 @jit(nopython=True)
 def compute_panic_source(rho, X, Y, t, panic_start, rho0, pushing_cap_coeff):
+    # Panic Area: Circle centered at (60, 31.5) with radius 20m [cite: 497, 501]
     ny, nx = rho.shape
     source = np.zeros((ny, nx))
     if t < panic_start: return source
@@ -359,6 +392,10 @@ def compute_panic_source(rho, X, Y, t, panic_start, rho0, pushing_cap_coeff):
 
 # --- MAIN DRIVER ---
 def run_simulation_backend(rho0, rhom, c0, tau, mass, fd_A, fd_B, cost_C, push_K):
+    # Note: Global PANIC_TIME and INFLOW_RATE used from sidebar state
+    panic_start = Config.PANIC_START_TIME 
+    peak_inflow = INFLOW_RATE
+    
     nx = int(Config.L_X / Config.DX)
     ny = int(Config.L_Y / Config.DY)
     x = np.linspace(0, Config.L_X, nx)
@@ -367,36 +404,33 @@ def run_simulation_backend(rho0, rhom, c0, tau, mass, fd_A, fd_B, cost_C, push_K
     
     Q = np.zeros((3, ny, nx))
     mask_obs = np.zeros((ny, nx), dtype=np.bool_)
+    
+    # Use Railway Platform Obstacles 
     for obs in Config.OBSTACLES:
         mask_obs[(Y >= obs[2]) & (Y <= obs[3]) & (X >= obs[0]) & (X <= obs[1])] = True
     mask_dest = (X >= Config.L_X - 1.0)
     
-    # Initialize Density (Moderate Full Room)
-    Q[0, :, :] = 2.0
-    for j in range(ny):
-        for i in range(nx):
-            if mask_obs[j, i]: Q[0, j, i] = 0.0
-    Q[1, :, :] = Q[0] * get_f_rho(Q[0], fd_A, fd_B)
+    # Initial: Empty (Paper starts empty) [cite: 484]
+    Q[0, :, :] = 0.0
     
     t = 0.0
     history = []
     save_interval = 2.0
     last_save = -save_interval
     
-    # Progress Bar in Streamlit
     bar = st.progress(0.0)
     status = st.empty()
     
     while t < Config.T_MAX:
-        # Panic Obstacle
-        if t >= Config.PANIC_START_TIME:
+        # Panic Obstacle (Barrier Collapse) 
+        if t >= panic_start:
             o = Config.NEW_OBSTACLE
             mask_obs[(Y >= o[2]) & (Y <= o[3]) & (X >= o[0]) & (X <= o[1])] = True
 
-        # Inflow (Using global INFLOW_RATE from Sidebar)
-        rho_in = INFLOW_RATE
-        Q[0, :, 0:2] = rho_in
-        Q[1, :, 0:2] = rho_in * get_f_rho(rho_in, fd_A, fd_B)
+        # Inflow (Paper Equation 49) [cite: 486]
+        rho_val = get_paper_inflow(t, peak_inflow)
+        Q[0, :, 0:2] = rho_val
+        Q[1, :, 0:2] = rho_val * get_f_rho(rho_val, fd_A, fd_B)
         Q[2, :, 0:2] = 0.0
         
         # Fields
@@ -408,7 +442,7 @@ def run_simulation_backend(rho0, rhom, c0, tau, mass, fd_A, fd_B, cost_C, push_K
         
         phi_e = solve_eikonal_jit(cost_nav, mask_dest, Config.DX)
         
-        rhs_p2 = compute_panic_source(rho, X, Y, t, Config.PANIC_START_TIME, rho0, push_K)
+        rhs_p2 = compute_panic_source(rho, X, Y, t, panic_start, rho0, push_K)
         mask_p2_zero = (rho <= rho0)
         pot_p2 = solve_eikonal_jit(rhs_p2, mask_p2_zero, Config.DX)
         alpha = np.maximum((rho - rho0)/(rhom - rho0), 0.0)
@@ -425,7 +459,7 @@ def run_simulation_backend(rho0, rhom, c0, tau, mass, fd_A, fd_B, cost_C, push_K
         dt = Config.CFL * Config.DX / (max_v + 1e-6)
         if dt > 0.1: dt = 0.1
         
-        # RK3 Steps 
+        # RK3 Steps
         L1 = compute_rhs_jit(Q, P2, phi_e, mask_obs, Config.DX, Config.DY, c0, tau, mass, fd_A, fd_B)
         Q1 = Q + dt * L1
         L2 = compute_rhs_jit(Q1, P2, phi_e, mask_obs, Config.DX, Config.DY, c0, tau, mass, fd_A, fd_B)
@@ -451,54 +485,6 @@ def run_simulation_backend(rho0, rhom, c0, tau, mass, fd_A, fd_B, cost_C, push_K
     bar.empty()
     status.empty()
     return X, Y, history
-
-# --- ANALYSIS HELPER (NEWLY ADDED) ---
-def plot_density_vs_time(history, nx, ny):
-    # 1. Tentukan Koordinat Grid untuk Titik A dan B
-    # Asumsi grid 200x100 (sesuai kode Anda ny=100, nx=200)
-    # Titik A (Depan rintangan, misal x=115, y=50) -> Area macet
-    # Titik B (Belakang rintangan, misal x=130, y=50) -> Area kosong
-    
-    # Sesuaikan indeks ini dengan posisi rintangan di map Anda!
-    # Misal obstacle ada di x=60 (meter). Jika dx=0.5, maka grid index = 120.
-    pt_A_x, pt_A_y = 118, 50  # Sedikit sebelum rintangan (Upstream)
-    pt_B_x, pt_B_y = 130, 50  # Sedikit sesudah rintangan (Downstream)
-
-    times = []
-    densities_A = []
-    densities_B = []
-
-    for time_val, rho_grid in history:
-        times.append(time_val)
-        # Pastikan indeks tidak out of bound
-        val_a = rho_grid[min(pt_A_y, ny-1), min(pt_A_x, nx-1)]
-        val_b = rho_grid[min(pt_B_y, ny-1), min(pt_B_x, nx-1)]
-        densities_A.append(val_a)
-        densities_B.append(val_b)
-
-    # 2. Plotting (Modified for Streamlit)
-    # Menggunakan background putih agar sesuai dengan container video
-    fig, ax = plt.subplots(figsize=(10, 4), facecolor='white')
-    ax.set_facecolor('white')
-    
-    ax.plot(times, densities_A, label='Titik A (Upstream/Macet)', color='#d62728', linewidth=2)
-    ax.plot(times, densities_B, label='Titik B (Downstream/Kosong)', color='#1f77b4', linestyle='--', linewidth=2)
-    
-    ax.set_title("Evolusi Densitas Terhadap Waktu (Analisis Rintangan)", color='black')
-    ax.set_xlabel("Waktu (s)", color='black')
-    ax.set_ylabel("Densitas (orang/m²)", color='black')
-    
-    ax.tick_params(colors='black')
-    for spine in ax.spines.values():
-        spine.set_edgecolor('black')
-        
-    ax.legend()
-    ax.grid(True, alpha=0.3, color='gray')
-    
-    # Render di Streamlit
-    st.markdown("### Analisis Grafik")
-    st.pyplot(fig)
-
 
 # ==========================================
 # 3. Page Content
@@ -545,48 +531,41 @@ elif st.session_state.page == 'simulation':
         st.markdown("#### 1) Parameters")
         st.info("Hover over the question mark for parameter explanations.")
         
-        # --- INPUT BLOCKS (Matches Figma) ---
-        # We use st.session_state.inputs_disabled to lock them
+        # --- INPUT BLOCKS ---
         disabled = st.session_state.inputs_disabled
         
-        crit_dens = st.number_input("**Critical Density (ped/m²)**", value=5.0, disabled=disabled, help="The density at which people start to generate pushing pressure.Below ρ₀, pushing pressure is zero; above it, pushing effects begin to appear.")
-        max_dens = st.number_input("**Maximum Density (ped/m²)**", value=7.0, disabled=disabled, help="The highest possible crowd density the model allows.At ρ = ρₘ, people in the room are fully packed and movement is extremely limited.")
-        sonic_spd = st.number_input("**Sonic Speed (m/s)**", value=1.2, disabled=disabled, help="A model parameter controlling the strength of traffic pressure in the Payne–Whitham formulation. Higher c₀ → more stable flow; lower c₀ → stop-and-go instabilities may appear.")
+        # UPDATED DEFAULT VALUES TO MATCH PAPER TABLE 2
+        crit_dens = st.number_input("**Critical Density (ped/m²)**", value=5.0, disabled=disabled, help="Paper Value: 5.0")
+        max_dens = st.number_input("**Maximum Density (ped/m²)**", value=7.0, disabled=disabled, help="Paper Value: 7.0")
+        sonic_spd = st.number_input("**Sonic Speed (m/s)**", value=1.2, disabled=disabled, help="Paper Value: 1.2 (for stability).")
         
-        # The Variable in Question
-        relax_time = st.number_input("**Relaxation Time (s)**", value=0.61, disabled=disabled, help="A characteristic time scale that describes how quickly pedestrians adjust their actual velocity to the equilibrium (desired) velocity.")        
+        relax_time = st.number_input("**Relaxation Time (s)**", value=0.61, disabled=disabled, help="Paper Value: 0.61")        
         
-        avg_mass = st.number_input("**Average Mass (kg)**", value=60.0, disabled=disabled, help="A constant representing the average body mass of a pedestrian, used in the momentum equations.")
+        avg_mass = st.number_input("**Average Mass (kg)**", value=60.0, disabled=disabled, help="Paper Value: 60.0")
         
-        st.markdown("**Fundamental Diagram**", help="A function that describes how equilibrium walking speed decreases with density.")
+        st.markdown("**Fundamental Diagram**")
         c1, c2 = st.columns(2)
-        fd_A = c1.number_input("Coeff A", value=1.03, disabled=disabled)
-        fd_B = c2.number_input("Coeff B", value=-0.07, disabled=disabled)
+        fd_A = c1.number_input("Coeff A", value=1.034, disabled=disabled, help="Paper Value: 1.034")
+        fd_B = c2.number_input("Coeff B", value=-0.075, disabled=disabled, help="Paper Value: -0.075")
         st.caption(f"Speed = {fd_A} * exp({fd_B} * ρ²)")
         
-        cost_C = st.number_input("**Density Cost Function Coeff**", value=0.01, disabled=disabled, help="A function capturing how pedestrians avoid high-density areas in their route choice.")
-        push_K = st.number_input("**Pushing Capacity Coeff**", value=600.0, disabled=disabled, help="A function describing how strongly pedestrians can generate pushing pressure when crowded.")
+        cost_C = st.number_input("**Density Cost Function Coeff**", value=0.01, disabled=disabled, help="Paper Value: 0.01")
+        push_K = st.number_input("**Pushing Capacity Coeff**", value=600.0, disabled=disabled, help="Paper Value: 600.0")
         
         st.markdown("---")
         
         # --- ACTION BUTTONS ---
         if not st.session_state.inputs_disabled:
-            # STATE 3: Ready to start
             if st.button("Start Simulation!"):
                 st.session_state.inputs_disabled = True
-                st.rerun() # Rerun to update UI to "Disabled" state immediately
+                st.rerun()
         else:
-            # STATE 4: Simulation Done/Running
             if st.session_state.simulation_data is None:
-                # This block runs right after user clicks start (and rerun happens)
                 with st.spinner("Simulating physics (this may take ~1 minute)..."):
-                    # RUN BACKEND HERE
-                    # Fixed: Pass all 9 arguments including relax_time
                     X, Y, hist = run_simulation_backend(crit_dens, max_dens, sonic_spd, relax_time, avg_mass, fd_A, fd_B, cost_C, push_K)
                     st.session_state.simulation_data = (X, Y, hist)
-                st.rerun() # Rerun to show results
+                st.rerun()
             else:
-                # Simulation is finished, data is present. Show "Edit" button.
                 if st.button("Edit New Parameters"):
                     enable_editing()
                     st.rerun()
@@ -594,11 +573,9 @@ elif st.session_state.page == 'simulation':
     with col_result:
         st.markdown("#### 2) Simulation Results")
         
-        # Container for the result
         result_container = st.container()
         
         if st.session_state.simulation_data is None:
-            # Placeholder State - Added white background and darkened text/border for visibility
             result_container.markdown(
                 """
                 <div style='height: 400px; border: 2px dashed #444; display: flex; align-items: center; justify-content: center; color: #888; background-color: white; border-radius: 10px;'>
@@ -608,26 +585,22 @@ elif st.session_state.page == 'simulation':
                 unsafe_allow_html=True
             )
         else:
-            # Result State
             X, Y, history = st.session_state.simulation_data
             
-            # Create Plot - Force white background for the figure
             fig, ax = plt.subplots(figsize=(8, 5), facecolor='white')
             ax.set_facecolor('white')
             
-            # Draw Static Obstacles
+            # Draw Static Obstacles (Railway)
             for obs in Config.OBSTACLES:
                 ax.add_patch(plt.Rectangle((obs[0], obs[2]), obs[1]-obs[0], obs[3]-obs[2], fc='black'))
             
-            # Dynamic Obstacle Placeholder
+            # Dynamic Obstacle Placeholder (Red)
             dyn_obs = plt.Rectangle((60, 30), 5, 3, fc='red', alpha=0)
             ax.add_patch(dyn_obs)
             
-            # Initial Contours
-            mesh = ax.contourf(X, Y, history[0][1], levels=np.linspace(0, 10, 100), cmap='jet', extend='both')
+            mesh = ax.contourf(X, Y, history[0][1], levels=np.linspace(0, 8, 80), cmap='jet', extend='both')
             cbar = fig.colorbar(mesh, ax=ax, label='Density')
             
-            # Ensure text is black for readability on white
             ax.set_title("Time: 0.0s", color='black')
             ax.tick_params(colors='black')
             cbar.ax.yaxis.label.set_color('black')
@@ -637,15 +610,20 @@ elif st.session_state.page == 'simulation':
                 t, rho = history[frame_idx]
                 ax.clear()
                 ax.set_facecolor('white')
-                ax.contourf(X, Y, rho, levels=np.linspace(0, 10, 100), cmap='jet', extend='both')
+                ax.contourf(X, Y, rho, levels=np.linspace(0, 8, 80), cmap='jet', extend='both')
                 ax.set_title(f"Time: {t:.1f} s", color='black')
                 ax.tick_params(colors='black')
+                
+                # Draw Static Obstacles
                 for obs in Config.OBSTACLES:
                     ax.add_patch(plt.Rectangle((obs[0], obs[2]), obs[1]-obs[0], obs[3]-obs[2], fc='black'))
+                
+                # Draw Panic Obstacle if t >= Panic Time
+                if t >= Config.PANIC_START_TIME:
+                    ax.add_patch(plt.Rectangle((60, 30), 5, 3, fc='red'))
 
             anim = FuncAnimation(fig, update, frames=len(history), interval=100)
             
-            # Display using Streamlit - Wrap the component in a white div to prevent dark-mode bleed
             anim_html = anim.to_jshtml()
             white_background_wrapper = f"""
             <div style="background-color: white; border-radius: 10px;">
@@ -658,7 +636,3 @@ elif st.session_state.page == 'simulation':
                 "<p style='text-align: left;'> Simulation results can be determined based on the density color range on the right side. For example, if your simulation results displayed <span style='font-weight: bold; color: red;'>RED</span> areas, your parameters might not be compatible using this kind of indoor map. But, if there were no <span style='font-weight: bold; color: red;'>RED</span> areas, your parameters were good to go!</p>", 
                 unsafe_allow_html=True
             )
-            
-            # --- INTEGRASI KODE BARU DI SINI ---
-            # Menampilkan grafik tambahan di bawah teks interpretasi
-            plot_density_vs_time(history, int(Config.L_X / Config.DX), int(Config.L_Y / Config.DY))
