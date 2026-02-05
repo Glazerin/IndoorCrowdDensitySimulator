@@ -5,7 +5,7 @@ from matplotlib.animation import FuncAnimation
 import matplotlib.colors as mcolors
 from numba import jit
 import time
-import matplotlib.patches as patches
+import matplotlib.patches as patches # Added for cleaner patch handling
 
 # ==========================================
 # 0. Page Config & CSS Styling
@@ -70,39 +70,44 @@ def enable_editing():
 # ==========================================
 # 2. Simulation Logic (BACKEND)
 # ==========================================
+# Note: These variables are global and accessed by the backend
 INFLOW_RATE = 0
 WALK_SPEED = 0
 SIM_DURATION = 0
 PANIC_TIME = 0
 
+# 1. Setup Session State for Navigation
+# We default to 'landing' if the app just started
 if 'page' not in st.session_state:
     st.session_state.page = 'landing'
 
+# 2. Sidebar Logic (Restricted to Simulation Page)
 if st.session_state.page == 'simulation':
     st.sidebar.markdown("### Simulation Controls")
     
     INFLOW_RATE = st.sidebar.slider(
         "Inflow Density (People/m²)", 
-        1.0, 8.0, 1.8, 
+        1.0, 8.0, 1.5, 
         help="How fast people enter the room."
     )
     
     WALK_SPEED = st.sidebar.slider(
         "Walking Speed (m/s)", 
-        0.2, 1.5, 1.34, 
+        0.2, 1.5, 0.5, 
         help="Lower = Sluggish movement."
     )
     
     SIM_DURATION = st.sidebar.slider(
         "Simulation Duration (s)", 
-        50, 250, 250
+        50, 200, 100
     )
     
     PANIC_TIME = st.sidebar.slider(
         "Panic Event Time (s)", 
-        0, 200, 150
+        0, 200, 75
     )
 else:
+    # This ensures the sidebar remains empty on 'landing' and 'guide' pages
     st.sidebar.empty()
 
 class Config:
@@ -117,20 +122,17 @@ class Config:
     RHO_0 = 5.0
     RHO_M = 7.0
     C0 = 1.2
-    TAU = 0.61   
+    TAU = 2.0   
     MASS = 60.0
     PANIC_START_TIME = float(PANIC_TIME)
     
     OBSTACLES = np.array([
-        [60.0, 65.0, 0.0, 10.0],   # Bottom
-        [60.0, 65.0, 20.0, 30.0],  # Middle
-        [60.0, 65.0, 40.0, 50.0]   # Top
-        # [0.0, 5.0, 30.0, 40.0], [0.0, 5.0, 10.0, 20.0],
-        # [95.0, 100.0, 30.0, 40.0], [95.0, 100.0, 10.0, 20.0],
-        # [20.0, 80.0, 0.0, 5.0], [20.0, 80.0, 12.0, 22.0], [20.0, 80.0, 28.0, 38.0], [20.0, 80.0, 45.0, 50.0]
+        [0.0, 5.0, 30.0, 40.0], [0.0, 5.0, 10.0, 20.0],
+        [95.0, 100.0, 30.0, 40.0], [95.0, 100.0, 10.0, 20.0],
+        [20.0, 80.0, 0.0, 5.0], [20.0, 80.0, 12.0, 22.0], [20.0, 80.0, 28.0, 38.0], [20.0, 80.0, 45.0, 50.0], 
     ], dtype=np.float64)
     
-    NEW_OBSTACLE = np.array([45.0, 50.0, 22.0, 28.0], dtype=np.float64)
+    NEW_OBSTACLE = np.array([60, 65, 30, 33], dtype=np.float64)
 
 # --- JIT HELPERS ---
 @jit(nopython=True)
@@ -357,7 +359,8 @@ def compute_panic_source(rho, X, Y, t, panic_start, rho0, pushing_cap_coeff):
             source[j, i] = term_dist * k_val
     return source
 
-# --- MAIN DRIVER ---
+# --- MAIN DRIVER (FIXED) ---
+# FIXED: Added 'tau' to the arguments to match the UI call
 def run_simulation_backend(rho0, rhom, c0, tau, mass, fd_A, fd_B, cost_C, push_K):
     nx = int(Config.L_X / Config.DX)
     ny = int(Config.L_Y / Config.DY)
@@ -426,6 +429,7 @@ def run_simulation_backend(rho0, rhom, c0, tau, mass, fd_A, fd_B, cost_C, push_K
         if dt > 0.1: dt = 0.1
         
         # RK3 Steps 
+        # FIXED: Passing 'tau' from arguments instead of 'Config.TAU'
         L1 = compute_rhs_jit(Q, P2, phi_e, mask_obs, Config.DX, Config.DY, c0, tau, mass, fd_A, fd_B)
         Q1 = Q + dt * L1
         L2 = compute_rhs_jit(Q1, P2, phi_e, mask_obs, Config.DX, Config.DY, c0, tau, mass, fd_A, fd_B)
@@ -451,54 +455,6 @@ def run_simulation_backend(rho0, rhom, c0, tau, mass, fd_A, fd_B, cost_C, push_K
     bar.empty()
     status.empty()
     return X, Y, history
-
-# --- ANALYSIS HELPER (NEWLY ADDED) ---
-def plot_density_vs_time(history, nx, ny):
-    # 1. Tentukan Koordinat Grid untuk Titik A dan B
-    # Asumsi grid 200x100 (sesuai kode Anda ny=100, nx=200)
-    # Titik A (Depan rintangan, misal x=115, y=50) -> Area macet
-    # Titik B (Belakang rintangan, misal x=130, y=50) -> Area kosong
-    
-    # Sesuaikan indeks ini dengan posisi rintangan di map Anda!
-    # Misal obstacle ada di x=60 (meter). Jika dx=0.5, maka grid index = 120.
-    pt_A_x, pt_A_y = 118, 50  # Sedikit sebelum rintangan (Upstream)
-    pt_B_x, pt_B_y = 130, 50  # Sedikit sesudah rintangan (Downstream)
-
-    times = []
-    densities_A = []
-    densities_B = []
-
-    for time_val, rho_grid in history:
-        times.append(time_val)
-        # Pastikan indeks tidak out of bound
-        val_a = rho_grid[min(pt_A_y, ny-1), min(pt_A_x, nx-1)]
-        val_b = rho_grid[min(pt_B_y, ny-1), min(pt_B_x, nx-1)]
-        densities_A.append(val_a)
-        densities_B.append(val_b)
-
-    # 2. Plotting (Modified for Streamlit)
-    # Menggunakan background putih agar sesuai dengan container video
-    fig, ax = plt.subplots(figsize=(10, 4), facecolor='white')
-    ax.set_facecolor('white')
-    
-    ax.plot(times, densities_A, label='Titik A (Upstream/Macet)', color='#d62728', linewidth=2)
-    ax.plot(times, densities_B, label='Titik B (Downstream/Kosong)', color='#1f77b4', linestyle='--', linewidth=2)
-    
-    ax.set_title("Evolusi Densitas Terhadap Waktu (Analisis Rintangan)", color='black')
-    ax.set_xlabel("Waktu (s)", color='black')
-    ax.set_ylabel("Densitas (orang/m²)", color='black')
-    
-    ax.tick_params(colors='black')
-    for spine in ax.spines.values():
-        spine.set_edgecolor('black')
-        
-    ax.legend()
-    ax.grid(True, alpha=0.3, color='gray')
-    
-    # Render di Streamlit
-    st.markdown("### Analisis Grafik")
-    st.pyplot(fig)
-
 
 # ==========================================
 # 3. Page Content
@@ -554,18 +510,18 @@ elif st.session_state.page == 'simulation':
         sonic_spd = st.number_input("**Sonic Speed (m/s)**", value=1.2, disabled=disabled, help="A model parameter controlling the strength of traffic pressure in the Payne–Whitham formulation. Higher c₀ → more stable flow; lower c₀ → stop-and-go instabilities may appear.")
         
         # The Variable in Question
-        relax_time = st.number_input("**Relaxation Time (s)**", value=0.61, disabled=disabled, help="A characteristic time scale that describes how quickly pedestrians adjust their actual velocity to the equilibrium (desired) velocity.")        
+        relax_time = st.number_input("**Relaxation Time (s)**", value=2.0, disabled=disabled, help="A characteristic time scale that describes how quickly pedestrians adjust their actual velocity to the equilibrium (desired) velocity.")        
         
         avg_mass = st.number_input("**Average Mass (kg)**", value=60.0, disabled=disabled, help="A constant representing the average body mass of a pedestrian, used in the momentum equations.")
         
         st.markdown("**Fundamental Diagram**", help="A function that describes how equilibrium walking speed decreases with density.")
         c1, c2 = st.columns(2)
-        fd_A = c1.number_input("Coeff A", value=1.03, disabled=disabled)
-        fd_B = c2.number_input("Coeff B", value=-0.07, disabled=disabled)
+        fd_A = c1.number_input("Coeff A", value=0.5, disabled=disabled)
+        fd_B = c2.number_input("Coeff B", value=-0.075, disabled=disabled)
         st.caption(f"Speed = {fd_A} * exp({fd_B} * ρ²)")
         
         cost_C = st.number_input("**Density Cost Function Coeff**", value=0.01, disabled=disabled, help="A function capturing how pedestrians avoid high-density areas in their route choice.")
-        push_K = st.number_input("**Pushing Capacity Coeff**", value=600.0, disabled=disabled, help="A function describing how strongly pedestrians can generate pushing pressure when crowded.")
+        push_K = st.number_input("**Pushing Capacity Coeff**", value=100.0, disabled=disabled, help="A function describing how strongly pedestrians can generate pushing pressure when crowded.")
         
         st.markdown("---")
         
@@ -658,7 +614,3 @@ elif st.session_state.page == 'simulation':
                 "<p style='text-align: left;'> Simulation results can be determined based on the density color range on the right side. For example, if your simulation results displayed <span style='font-weight: bold; color: red;'>RED</span> areas, your parameters might not be compatible using this kind of indoor map. But, if there were no <span style='font-weight: bold; color: red;'>RED</span> areas, your parameters were good to go!</p>", 
                 unsafe_allow_html=True
             )
-            
-            # --- INTEGRASI KODE BARU DI SINI ---
-            # Menampilkan grafik tambahan di bawah teks interpretasi
-            plot_density_vs_time(history, int(Config.L_X / Config.DX), int(Config.L_Y / Config.DY))
