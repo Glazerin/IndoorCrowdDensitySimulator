@@ -77,7 +77,6 @@ SIM_DURATION = 0
 PANIC_TIME = 0
 
 # 1. Setup Session State for Navigation
-# We default to 'landing' if the app just started
 if 'page' not in st.session_state:
     st.session_state.page = 'landing'
 
@@ -104,10 +103,9 @@ if st.session_state.page == 'simulation':
     
     PANIC_TIME = st.sidebar.slider(
         "Panic Event Time (s)", 
-        0, 200, 75
+        0, 200, 4
     )
 else:
-    # This ensures the sidebar remains empty on 'landing' and 'guide' pages
     st.sidebar.empty()
 
 class Config:
@@ -132,7 +130,7 @@ class Config:
         [20.0, 80.0, 0.0, 5.0], [20.0, 80.0, 12.0, 22.0], [20.0, 80.0, 28.0, 38.0], [20.0, 80.0, 45.0, 50.0], 
     ], dtype=np.float64)
     
-    NEW_OBSTACLE = np.array([60, 65, 30, 33], dtype=np.float64)
+    NEW_OBSTACLE = np.array([45, 50, 22, 28], dtype=np.float64)
 
 # --- JIT HELPERS ---
 @jit(nopython=True)
