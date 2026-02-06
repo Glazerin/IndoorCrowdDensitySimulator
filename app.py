@@ -3,6 +3,11 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
 import matplotlib.colors as mcolors
+# Menggunakan dekorator @jit (Just-In-Time compilation) dari library Numba.
+# Python standar sangat lambat untuk melakukan jutaan operasi matematika dalam loop 
+# (seperti menghitung pergerakan setiap titik grid di setiap detik). 
+# Numba mengubah kode Python ini menjadi kode mesin (selevel C++) 
+# agar simulasi bisa berjalan dalam hitungan detik/menit, bukan jam.
 from numba import jit
 import time
 import matplotlib.patches as patches # Added for cleaner patch handling
@@ -133,6 +138,10 @@ class Config:
     NEW_OBSTACLE = np.array([45, 50, 22, 28], dtype=np.float64)
 
 # --- JIT HELPERS ---
+# Menghitung "Peta Potensial" navigasi global.
+# Fungsi ini memberi tahu setiap orang (partikel) di dalam ruangan ke mana arah pintu keluar terdekat. 
+# Algoritma ini menghitung jarak terpendek dari setiap titik di ruangan menuju target, 
+# dengan memperhitungkan rintangan (tembok/meja) agar orang tidak menabrak tembok saat mencari jalan keluar.
 @jit(nopython=True)
 def get_f_rho(rho, coeff_A, coeff_B):
     return coeff_A * np.exp(coeff_B * rho**2)
@@ -209,6 +218,11 @@ def solve_eikonal_jit(cost_field, mask_target, dx, n_sweeps=4):
     return phi
 
 # --- WENO3 RECONSTRUCTION ---
+# Menghitung perpindahan kepadatan (flux) antar-sel grid dengan akurasi tinggi.
+# Skema WENO3 (Weighted Essentially Non-Oscillatory) digunakan untuk menangani "Shockwave" 
+# (perubahan kepadatan mendadak dari kosong ke macet). 
+# Jika pakai metode biasa, simulasi akan crash atau muncul angka aneh saat macet. 
+# WENO3 mencegah hal itu dengan memberi bobot cerdas pada aliran data yang "mulus" dan membuang data yang "kasar".
 @jit(nopython=True)
 def weno3_flux_reconstruction(Q, nx, ny, dx, dy, C0, A, B):
     dFdx = np.zeros_like(Q)
@@ -297,6 +311,11 @@ def weno3_flux_reconstruction(Q, nx, ny, dx, dy, C0, A, B):
     return dFdx + dGdy
 
 # --- PHYSICS KERNEL ---
+# Menghitung gaya-gaya yang bekerja pada kerumunan.
+# Fungsi ini menghitung:
+# Relaksasi: Upaya orang untuk mencapai kecepatan yang diinginkan.
+# Antisipasi: Orang mengerem jika di depannya padat (gradien tekanan).
+# Panic: (Melalui fungsi compute_panic_source) Gaya dorong tambahan saat orang panik ingin keluar cepat.
 @jit(nopython=True)
 def compute_rhs_jit(Q, P2, phi_e, mask_obs, dx, dy, C0, Tau, Mass, A, B):
     nx = Q.shape[2]; ny = Q.shape[1]
@@ -428,6 +447,10 @@ def run_simulation_backend(rho0, rhom, c0, tau, mass, fd_A, fd_B, cost_C, push_K
         
         # RK3 Steps 
         # FIXED: Passing 'tau' from arguments instead of 'Config.TAU'
+        # Mengupdate simulasi dari waktu t ke t+1
+        # melakukan 3 langkah prediksi (L1, L2, L3) lalu merata-ratakannya dengan bobot khusus (0.75, 0.25, dll). 
+        # Tujuannya untuk menjaga kestabilan simulasi agar nilai kepadatan tidak "meledak" 
+        # atau menjadi negatif seiring berjalannya waktu.
         L1 = compute_rhs_jit(Q, P2, phi_e, mask_obs, Config.DX, Config.DY, c0, tau, mass, fd_A, fd_B)
         Q1 = Q + dt * L1
         L2 = compute_rhs_jit(Q1, P2, phi_e, mask_obs, Config.DX, Config.DY, c0, tau, mass, fd_A, fd_B)
